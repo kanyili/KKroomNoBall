@@ -1212,6 +1212,19 @@ if (isWorshipEnding) {
             let nextX = npc.x + (dirX / dist) * moveStep;
             let nextZ = npc.z + (dirZ / dist) * moveStep;
 
+            // 限制 NPC 不得跑出外牆
+            nextX = THREE.MathUtils.clamp(
+                nextX,
+                ROOM_MIN_X + 0.5,
+                ROOM_MAX_X - 0.5
+            );
+
+            nextZ = THREE.MathUtils.clamp(
+                nextZ,
+                ROOM_MIN_Z + 0.5,
+                ROOM_MAX_Z - 0.5
+            );
+
             const buffer = 0.4;
             const isInRestrictedZoneX = (nextX >= (NO_NPC_ZONE.minX - buffer) && nextX <= (NO_NPC_ZONE.maxX + buffer) && npc.z >= (NO_NPC_ZONE.minZ - buffer) && npc.z <= (NO_NPC_ZONE.maxZ + buffer));
             const isInRestrictedZoneZ = (npc.x >= (NO_NPC_ZONE.minX - buffer) && npc.x <= (NO_NPC_ZONE.maxX + buffer) && nextZ >= (NO_NPC_ZONE.minZ - buffer) && nextZ <= (NO_NPC_ZONE.maxZ + buffer));
@@ -1434,7 +1447,7 @@ function drawRadar() {
 function animate() {
     requestAnimationFrame(animate);
 
-    const delta = clock.getDelta();
+    const delta = Math.min(clock.getDelta(), 0.05);
     const time = clock.getElapsedTime();
 
     updateMovement(delta);

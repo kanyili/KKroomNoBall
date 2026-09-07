@@ -1,0 +1,1460 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>兒主教室不能玩球</title>
+<style>
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #65b5ed;
+    font-family: Arial, "Microsoft JhengHei", sans-serif;
+}
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    outline: none;
+}
+#ui {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    z-index: 20;
+    color: white;
+    background: rgba(0, 0, 0, 0.75);
+    padding: 16px 22px;
+    border-radius: 12px;
+    font-size: 26px;
+    line-height: 1.8;
+    pointer-events: none;
+    user-select: none;
+}
+#lives-display {
+    color: #ff6b6b;
+    font-size: 32px;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+#ball-status {
+    font-size: 20px;
+    color: #f1c40f;
+    margin-top: 4px;
+}
+#crosshair {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    transform: translate(-50%, -50%);
+    background: rgba(231, 76, 60, 0.95);
+    border-radius: 50%;
+    z-index: 15;
+    pointer-events: none;
+    box-shadow: 0 0 8px rgba(231, 76, 60, 0.9);
+}
+#damage-flash {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 0, 0, 0.45);
+    z-index: 40;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s ease-out;
+}
+#overlay-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.85);
+    transition: opacity 0.3s ease;
+    pointer-events: auto; 
+    cursor: pointer;
+}
+#overlay-screen.worship-top {
+    align-items: flex-start;
+    background: transparent;
+    pointer-events: none;
+}
+#overlay-box {
+    width: min(480px, 85%);
+    padding: 35px;
+    color: white;
+    text-align: center;
+    background: #1d1d1d;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+#overlay-screen.worship-top #overlay-box {
+    margin-top: 20px;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: auto;
+}
+#overlay-box h1 {
+    margin: 0 0 16px;
+    font-size: 36px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.9);
+}
+#overlay-box p {
+    color: #fff;
+    line-height: 1.8;
+    font-size: 19px;
+    text-align: center;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+}
+.npc-speech {
+    position: fixed;
+    z-index: 30;
+    color: #ffffff;
+    background: rgba(0, 0, 0, 0.85);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 22px;
+    font-weight: bold;
+    pointer-events: none;
+    white-space: nowrap;
+    transform: translate(-50%, -100%);
+    display: none;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+    border: 1.5px solid rgba(255,255,255,0.3);
+}
+.npc-speech::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px 5px 0;
+    border-style: solid;
+    border-color: rgba(0, 0, 0, 0.85) transparent;
+    display: block;
+    width: 0;
+}
+
+#radarCanvas {
+    position: fixed;
+    bottom: 25px;
+    right: 25px;
+    width: 150px;
+    height: 150px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.7);
+    z-index: 50;
+    pointer-events: none;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+</style>
+</head>
+
+<body>
+
+<div id="damage-flash"></div>
+
+<div id="ui">
+    <div>剩餘次數：<span id="lives-display">❤❤❤</span></div>
+    <div id="ball-status">狀態：手上有球 (球類警戒)</div>
+</div>
+
+<div id="crosshair"></div>
+<canvas id="radarCanvas" width="150" height="150"></canvas>
+<div id="npc-speech-container"></div>
+
+<div id="overlay-screen">
+    <div id="overlay-box">
+        <h1 id="overlay-title">🏫 兒主教室不能玩球</h1>
+        <p id="overlay-desc">
+            <b>W A S D / 方向鍵：</b>移動<br>
+            <b>滑鼠左鍵：</b>丟球<br>
+            <b>滑鼠右鍵：</b>放下球<br>
+            <b>空白鍵：</b>暫停 / 繼續<br><br>
+            <span style="color: #f1c40f; text-align: center; display: block;">點擊畫面開始遊戲</span>
+        </p>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+let scene, camera, renderer, clock;
+let gameStarted = false;
+let isCountingDown = false;
+let isPaused = false;
+let isWorshipEnding = false;
+
+const PLAYER_HEIGHT = 0.65;
+const PLAYER_RADIUS = 0.3;
+const MOVE_SPEED = 5;
+const FLOOR_SIZE = 200;
+
+const GRID_SIZE = 1;
+const GRID_COUNT = 26;
+const BUILDING_SIZE = GRID_SIZE * GRID_COUNT;
+
+const ROOM_MIN_X = -BUILDING_SIZE / 2;
+const ROOM_MAX_X = BUILDING_SIZE / 2;
+const ROOM_MIN_Z = -BUILDING_SIZE / 2;
+const ROOM_MAX_Z = BUILDING_SIZE / 2;
+
+const hRowIndex = 'H'.charCodeAt(0) - 65;
+const rRowIndex = 'R'.charCodeAt(0) - 65;
+const colStart = 19 - 1;
+const colEnd = 24 - 1;
+
+const zoneMinX = ROOM_MIN_X + colStart * GRID_SIZE;
+const zoneMaxX = ROOM_MIN_X + (colEnd + 1) * GRID_SIZE;
+const zoneMinZ = ROOM_MAX_Z - (rRowIndex + 1) * GRID_SIZE;
+const zoneMaxZ = ROOM_MAX_Z - hRowIndex * GRID_SIZE;
+
+const NO_NPC_ZONE = {
+    minX: Math.min(zoneMinX, zoneMaxX),
+    maxX: Math.max(zoneMinX, zoneMaxX),
+    minZ: Math.min(zoneMinZ, zoneMaxZ),
+    maxZ: Math.max(zoneMinZ, zoneMaxZ)
+};
+
+const WALL_THICKNESS = 0.2;
+const keys = { forward: false, backward: false, left: false, right: false };
+
+let yaw = 0;
+let pitch = 0;
+
+const startCol = 7 - 1;
+const startRowFromBottom = 'C'.charCodeAt(0) - 65;
+const START_X = ROOM_MIN_X + GRID_SIZE / 2 + startCol * GRID_SIZE;
+const START_Z = ROOM_MAX_Z - GRID_SIZE / 2 - startRowFromBottom * GRID_SIZE;
+
+const colliders = [];
+const npcs = [];
+const initialNpcPositions = [];
+const worshipWallMaterials = [];
+let worshipTextMesh = null;
+
+
+let playerLives = 3;
+let isInvulnerable = false;
+
+let dodgeballMesh;
+let permanentChairMesh = null;
+let ballState = 'HELD'; 
+let ballPos = new THREE.Vector3();
+let ballVelocity = new THREE.Vector3();
+const BALL_SPEED = 35.0;
+const BALL_MAX_DIST = 15.0;
+let ballDistTravelled = 0;
+
+let radarCanvas, radarCtx;
+const RADAR_VIEW_DISTANCE = 18;
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x65b5ed);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    resetPlayerAndNPCs();
+
+    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+    renderer.setPixelRatio(1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.domElement.tabIndex = 0;
+    renderer.domElement.style.touchAction = "none";
+    document.body.appendChild(renderer.domElement);
+
+    clock = new THREE.Clock();
+
+    createLights();
+    createFloor();
+    createGridLabels();
+    createOuterWalls();
+    createCustomMapObjects();
+    createWorshipTextOnExistingWall();
+    createSkyClouds();
+    createDodgeball();
+    createPermanentChair();
+    
+    createBlockyNPC("老師_1", "A", 23, 0xe74c3c, 0x483d8b, 0.35, 0.5, 'walk', 3.2);        
+    createBlockyNPC("老師_2", "M", 15, 0xff8c00, 0x556b2f, 0.50, 0.45, 'crazy', 2.7);      
+    createBlockyNPC("老師_3", "P", 4,  0xff1493, 0x8b4513, 0.25, 0.55, 'zombie', 3.5);     
+    createBlockyNPC("老師_4", "X", 1,  0x9b59b6, 0x2f4f4f, 0.42, 0.48, 'patrol', 2.1);     
+    createBlockyNPC("老師_5", "X", 22, 0xf1c40f, 0x483d8b, 0.28, 0.52, 'fastrun', 3.8);  
+
+    setupInput();
+    window.addEventListener("resize", onResize);
+
+    radarCanvas = document.getElementById('radarCanvas');
+    radarCtx = radarCanvas.getContext('2d');
+
+    startCountdown();
+    animate();
+}
+
+function createDodgeball() {
+    const geometry = new THREE.SphereGeometry(0.15, 16, 16);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#e74c3c';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#f1c40f';
+    ctx.fillRect(128, 0, 128, 128);
+    ctx.fillStyle = '#3498db';
+    ctx.fillRect(0, 128, 128, 128);
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillRect(128, 128, 128, 128);
+
+    ctx.strokeStyle = '#2c3e50';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(128, 0); ctx.lineTo(128, 256);
+    ctx.moveTo(0, 128); ctx.lineTo(256, 128);
+    ctx.stroke();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.MeshBasicMaterial({ map: texture });
+
+    dodgeballMesh = new THREE.Mesh(geometry, material);
+    scene.add(dodgeballMesh);
+    updateBallPosition();
+}
+
+function createPermanentChair() {
+    const chairGroup = new THREE.Group();
+    const woodMat = new THREE.MeshBasicMaterial({ color: 0x8b5a2b });
+
+    const seatGeo = new THREE.BoxGeometry(0.4, 0.05, 0.4);
+    const seat = new THREE.Mesh(seatGeo, woodMat);
+    seat.position.y = 0.2;
+    chairGroup.add(seat);
+
+    const backGeo = new THREE.BoxGeometry(0.4, 0.4, 0.05);
+    const back = new THREE.Mesh(backGeo, woodMat);
+    back.position.set(0, 0.4, -0.175);
+    chairGroup.add(back);
+
+    const legGeo = new THREE.BoxGeometry(0.05, 0.2, 0.05);
+    const legPositions = [
+        [-0.17, 0.1, 0.17],
+        [0.17, 0.1, 0.17],
+        [-0.17, 0.1, -0.17],
+        [0.17, 0.1, -0.17]
+    ];
+    legPositions.forEach(p => {
+        const leg = new THREE.Mesh(legGeo, woodMat);
+        leg.position.set(...p);
+        chairGroup.add(leg);
+    });
+
+    chairGroup.rotation.y = Math.PI / 2;
+    chairGroup.position.set(0, 0, 0);
+    scene.add(chairGroup);
+    permanentChairMesh = chairGroup;
+}
+
+function updateBallPosition() {
+    if (ballState === 'HELD') {
+        const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+        const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        
+        ballPos.copy(camera.position)
+            .addScaledVector(forward, 0.5)
+            .addScaledVector(right, 0.2)
+            .add(new THREE.Vector3(0, -0.25, 0));
+        
+        dodgeballMesh.position.copy(ballPos);
+        dodgeballMesh.visible = true;
+    }
+}
+
+function updateBallUI() {
+    const statusEl = document.getElementById("ball-status");
+    if (isWorshipEnding) {
+        statusEl.textContent = "狀態：敬拜中";
+        statusEl.style.color = "#ffffff";
+        return;
+    }
+    if (ballState === 'HELD') {
+        statusEl.textContent = "狀態：手上有球";
+        statusEl.style.color = "#f1c40f";
+    } else if (ballState === 'GROUND') {
+        statusEl.textContent = "狀態：該去敬拜了";
+        statusEl.style.color = "#2ecc71";
+    } else {
+        statusEl.textContent = "狀態：球丟出去了";
+        statusEl.style.color = "#3498db";
+    }
+}
+
+function shootDodgeball() {
+    if (isWorshipEnding || ballState !== 'HELD' || !gameStarted || isPaused) return;
+
+    ballState = 'FLYING';
+    ballDistTravelled = 0;
+    
+    const direction = new THREE.Vector3(
+        -Math.sin(yaw),
+        0,
+        -Math.cos(yaw)
+    ).normalize();
+
+    ballVelocity.copy(direction).multiplyScalar(BALL_SPEED);
+    updateBallUI();
+}
+
+function placeBallOnGround() {
+    if (isWorshipEnding || ballState !== 'HELD' || !gameStarted || isPaused) return;
+
+    ballState = 'GROUND';
+    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    ballPos.copy(camera.position).addScaledVector(forward, 0.8);
+    ballPos.y = 0.15;
+    dodgeballMesh.position.copy(ballPos);
+    updateBallUI();
+}
+
+function resetPlayerAndNPCs() {
+    camera.position.set(START_X, PLAYER_HEIGHT, START_Z);
+    yaw = 0;
+    pitch = 0;
+    playerLives = 3;
+    isInvulnerable = false;
+    isPaused = false;
+    isWorshipEnding = false;
+    ballState = 'HELD';
+    updateBallUI();
+    document.getElementById("lives-display").textContent = "❤❤❤";
+
+    if (worshipTextMesh) {
+        worshipTextMesh.visible = false;
+    }
+    worshipWallMaterials.forEach(item => {
+        item.active = false;
+    });
+
+    if (npcs.length > 0) {
+        npcs.forEach((npc, index) => {
+            npc.x = initialNpcPositions[index].x;
+            npc.z = initialNpcPositions[index].z;
+            npc.group.position.set(npc.x, 0, npc.z);
+            npc.isDown = false;
+            npc.downTimer = 0;
+            npc.group.rotation.set(0, 0, 0);
+            npc.group.position.y = 0;
+            npc.speechTimer = Math.random() * 2;
+            npc.speechState = 'hidden';
+            npc.speechDuration = 0;
+            if (npc.domElement) npc.domElement.style.display = 'none';
+        });
+    }
+}
+
+function togglePause() {
+    if (!gameStarted || isCountingDown || isWorshipEnding) return;
+
+    isPaused = !isPaused;
+    const overlay = document.getElementById("overlay-screen");
+    overlay.classList.remove("worship-top");
+    const title = document.getElementById("overlay-title");
+    const desc = document.getElementById("overlay-desc");
+
+    if (isPaused) {
+        document.exitPointerLock();
+        title.textContent = "遊戲暫停";
+        desc.innerHTML = `
+            <b>方向鍵：</b>移動<br>
+            <b>滑鼠左鍵：</b>丟球<br>
+            <b>滑鼠右鍵：</b>把球放下<br>
+            <b>空白鍵：</b>暫停 / 繼續<br><br>
+            <span style="color: #f1c40f; text-align: center; display: block;">繼續遊戲：按空白鍵或點擊畫面</span>
+        `;
+        overlay.style.display = "flex";
+        overlay.style.opacity = "1";
+    } else {
+        overlay.style.opacity = "0";
+        setTimeout(() => {
+            if (!isPaused) overlay.style.display = "none";
+        }, 300);
+        renderer.domElement.requestPointerLock();
+        clock.getDelta(); 
+    }
+}
+
+function startCountdown() {
+    const overlay = document.getElementById("overlay-screen");
+    overlay.classList.remove("worship-top");
+    const title = document.getElementById("overlay-title");
+    const desc = document.getElementById("overlay-desc");
+
+    overlay.style.display = "flex";
+    overlay.style.opacity = "1";
+
+    resetPlayerAndNPCs();
+    isCountingDown = true;
+    gameStarted = false;
+    isPaused = false;
+    isWorshipEnding = false;
+
+    let count = 3;
+    title.textContent = `遊戲即將開始：${count}`;
+    desc.innerHTML = `
+        <b>方向鍵：</b>移動<br>
+        <b>滑鼠左鍵：</b>丟球<br>
+        <b>滑鼠右鍵：</b>把球放下<br>
+        <b>空白鍵：</b>暫停 / 繼續<br><br>
+        <span style="color: #f1c40f; text-align: center; display: block;">請準備...</span>
+    `;
+
+    const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+            title.textContent = `遊戲即將開始：${count}`;
+        } else {
+            clearInterval(timer);
+            overlay.style.opacity = "0";
+            setTimeout(() => {
+                overlay.style.display = "none";
+            }, 300);
+            isCountingDown = false;
+            gameStarted = true;
+            isPaused = false;
+            renderer.domElement.requestPointerLock();
+        }
+    }, 1000);
+}
+
+function createLights() {
+    const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+    scene.add(ambient);
+}
+
+function createFloor() {
+    const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
+        new THREE.MeshBasicMaterial({ color: 0x274e13 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = 0;
+    scene.add(floor);
+}
+
+function createGridLabels() {
+    for (let row = 0; row < GRID_COUNT; row++) {
+        for (let col = 0; col < GRID_COUNT; col++) {
+            const x = ROOM_MIN_X + GRID_SIZE / 2 + col * GRID_SIZE;
+            const z = ROOM_MAX_Z - GRID_SIZE / 2 - row * GRID_SIZE;
+            
+            const isWoodArea = (row >= 7 && row <= 17 && col >= 18 && col <= 23);
+            if (isWoodArea) {
+                const woodMesh = new THREE.Mesh(
+                    new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE),
+                    new THREE.MeshBasicMaterial({ color: 0xd7b899 })
+                );
+                woodMesh.rotation.x = -Math.PI / 2;
+                woodMesh.position.set(x, 0.01, z);
+                scene.add(woodMesh);
+            }
+        }
+    }
+}
+
+function createOuterWalls() {
+    const blackWallMaterial = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        side: THREE.DoubleSide
+    });
+
+    const WALL_HEIGHT = 3;
+
+    // 北牆
+    createBoxMesh(
+        0,
+        ROOM_MIN_Z - WALL_THICKNESS / 2,
+        BUILDING_SIZE + WALL_THICKNESS * 2,
+        WALL_HEIGHT,
+        WALL_THICKNESS,
+        blackWallMaterial,
+        true,
+        'wall'
+    );
+
+    // 南牆
+    createBoxMesh(
+        0,
+        ROOM_MAX_Z + WALL_THICKNESS / 2,
+        BUILDING_SIZE + WALL_THICKNESS * 2,
+        WALL_HEIGHT,
+        WALL_THICKNESS,
+        blackWallMaterial,
+        true,
+        'wall'
+    );
+
+    // 西牆
+    createBoxMesh(
+        ROOM_MIN_X - WALL_THICKNESS / 2,
+        0,
+        WALL_THICKNESS,
+        WALL_HEIGHT,
+        BUILDING_SIZE,
+        blackWallMaterial,
+        true,
+        'wall'
+    );
+
+    // 東牆
+    createBoxMesh(
+        ROOM_MAX_X + WALL_THICKNESS / 2,
+        0,
+        WALL_THICKNESS,
+        WALL_HEIGHT,
+        BUILDING_SIZE,
+        blackWallMaterial,
+        true,
+        'wall'
+    );
+}
+
+function createBoxMesh(x, z, width, height, depth, material, isCollider = true, isType = 'wall') {
+    const geometry = new THREE.BoxGeometry(width, height, depth);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, height / 2, z);
+    scene.add(mesh);
+
+    const edgesGeo = new THREE.EdgesGeometry(geometry);
+    const edgeMaterial = new THREE.LineBasicMaterial({ color: 0xcccccc });
+    const wireframeLines = new THREE.LineSegments(edgesGeo, edgeMaterial);
+    mesh.add(wireframeLines);
+
+    if (isCollider) {
+        colliders.push({
+            minX: x - width / 2,
+            maxX: x + width / 2,
+            minZ: z - depth / 2,
+            maxZ: z + depth / 2,
+            type: isType,
+            x: x,
+            z: z,
+            width: width,
+            depth: depth
+        });
+    }
+    return mesh;
+}
+
+function createBlockyNPC(name, letterRow, colNumber, shirtColorHex, pantsColorHex, bodyWidth = 0.35, bodyHeight = 0.5, behavior = 'walk', speed = 3.0) {
+    const rowFromBottom = letterRow.charCodeAt(0) - 65;
+    const col = colNumber - 1;
+    const x = ROOM_MIN_X + GRID_SIZE / 2 + col * GRID_SIZE;
+    const z = ROOM_MAX_Z - GRID_SIZE / 2 - rowFromBottom * GRID_SIZE;
+
+    initialNpcPositions.push({ x: x, z: z });
+
+    const npcGroup = new THREE.Group();
+
+    const skinMat = new THREE.MeshBasicMaterial({ color: 0xffdbac }); 
+    const shirtMat = new THREE.MeshBasicMaterial({ color: shirtColorHex }); 
+    const pantsMat = new THREE.MeshBasicMaterial({ color: pantsColorHex }); 
+
+    const torsoGeo = new THREE.BoxGeometry(bodyWidth, bodyHeight, 0.25);
+    const torso = new THREE.Mesh(torsoGeo, shirtMat);
+    torso.position.y = bodyHeight / 2 + 0.3;
+    npcGroup.add(torso);
+
+    const headGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.y = bodyHeight + 0.45;
+    npcGroup.add(head);
+
+    const legWidth = Math.max(0.1, bodyWidth * 0.35);
+    const legGeo = new THREE.BoxGeometry(legWidth, 0.3, 0.2);
+    
+    const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+    leftLeg.position.set(-bodyWidth / 4, 0.15, 0);
+    npcGroup.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+    rightLeg.position.set(bodyWidth / 4, 0.15, 0);
+    npcGroup.add(rightLeg);
+
+    npcGroup.position.set(x, 0, z);
+    scene.add(npcGroup);
+
+    const speechContainer = document.getElementById("npc-speech-container");
+    const speechDiv = document.createElement("div");
+    speechDiv.className = "npc-speech";
+    speechContainer.appendChild(speechDiv);
+
+    npcs.push({
+        name: name,
+        group: npcGroup,
+        torso: torso,
+        head: head,
+        leftLeg: leftLeg,
+        rightLeg: rightLeg,
+        behavior: behavior,
+        colorHex: shirtColorHex,
+        speed: speed,
+        x: x,
+        z: z,
+        isDown: false,
+        downTimer: 0,
+        domElement: speechDiv,
+        speechTimer: Math.random() * 2,
+        speechDuration: 0,
+        speechState: 'hidden'
+    });
+}
+
+function createCustomMapObjects() {
+    const greenMat = new THREE.MeshBasicMaterial({ color: 0x2ecc71 }); 
+    const grayMat = new THREE.MeshBasicMaterial({ color: 0x808080 });  
+    const blueMat = new THREE.MeshBasicMaterial({ color: 0x3498db });      
+
+    function getCellCoords(letter, number) {
+        const rowFromBottom = letter.charCodeAt(0) - 65;
+        const col = number - 1;
+        const x = ROOM_MIN_X + GRID_SIZE / 2 + col * GRID_SIZE;
+        const z = ROOM_MAX_Z - GRID_SIZE / 2 - rowFromBottom * GRID_SIZE;
+        return { x, z };
+    }
+
+    const tableCells = ["C3", "C4", "C5", "D5", "E5"];
+    tableCells.forEach(cell => {
+        const {x, z} = getCellCoords(cell[0], parseInt(cell.slice(1)));
+        createBoxMesh(x, z, GRID_SIZE, 1.0, GRID_SIZE, blueMat, true, 'table');
+    });
+
+    const greenCells = ["Y3","Y4","X4","W3","W4","V3","V4","C18","C19","C20","C21","C22","C23","C24","D18","E18","A24","B24"];
+    const excludedGreen = ["E18", "D18", "W3"];
+    const filteredGreenCells = greenCells.filter(cell => !excludedGreen.includes(cell));
+
+    let grayCells = ["J1","J2","J6","J7","J8","K8","L8","M8","N8","O8","P8","Q8","R8","S8","T1","T2","T3","T4","T8","T9","T10","T14","T15","T16","T17","T18","T19","T20","T25","T26","Z14","Y14","X14","W14","V14","U14","U15","U16","Z15","W15","V15","T14","R24","Q23","P22","N22","M22","L22","K22","J23","H24","T5","T6","T7","I23","J22","T24"];
+    const excludedGray = ["Z15", "W15", "V15", "U15", "U16", "K21", "J23", "K22"];
+    const uniqueGray = [...new Set(grayCells)].filter(cell => !excludedGray.includes(cell));
+
+    filteredGreenCells.forEach(cell => {
+        const {x, z} = getCellCoords(cell[0], parseInt(cell.slice(1)));
+        createBoxMesh(x, z, GRID_SIZE, 1.0, GRID_SIZE, greenMat, true, 'green');
+    });
+
+    uniqueGray.forEach(cell => {
+        const {x, z} = getCellCoords(cell[0], parseInt(cell.slice(1)));
+        createBoxMesh(x, z, GRID_SIZE, 3.0, GRID_SIZE, grayMat, true, 'gray');
+    });
+}
+
+function createWorshipTextOnExistingWall() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 512;
+
+    const ctx = canvas.getContext('2d');
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+
+    const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide
+    });
+
+    worshipWallMaterials.push({
+        canvas,
+        ctx,
+        texture,
+        active: false
+    });
+
+    // ==========================================
+    // 修改這裡：將目標牆面改至箭頭指向的位置（L排，欄位22）
+    // ==========================================
+    const rowFromBottom = 'L'.charCodeAt(0) - 65;
+
+    const colStart = 22;
+    const colEnd = 22;
+
+    const wallCenterX =
+        ROOM_MIN_X +
+        GRID_SIZE / 2 +
+        ((colStart + colEnd) / 2) * GRID_SIZE;
+
+    const wallZ =
+        ROOM_MAX_Z -
+        GRID_SIZE / 2 -
+        rowFromBottom * GRID_SIZE;
+
+    const textZ = wallZ - 0.51;
+
+    const geometry = new THREE.PlaneGeometry(5.5, 2.4);
+
+    worshipTextMesh = new THREE.Mesh(
+        geometry,
+        material
+    );
+
+    worshipTextMesh.position.set(
+        wallCenterX,
+        1.55,
+        textZ
+    );
+
+    // 維持面向南方，讓玩家與 NPC 可以正面看到
+    worshipTextMesh.rotation.y =  THREE.MathUtils.degToRad(270);
+
+    worshipTextMesh.renderOrder = 9999;
+    worshipTextMesh.visible = false;
+
+    scene.add(worshipTextMesh);
+}
+
+function createSkyClouds() {
+    const skyGeometry = new THREE.PlaneGeometry(100, 100);
+    const skyMaterial = new THREE.MeshBasicMaterial({ color: 0x5fb4ed, side: THREE.DoubleSide });
+    const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+    sky.rotation.x = Math.PI / 2;
+    sky.position.y = 5.5;
+    scene.add(sky);
+}
+
+function setupInput() {
+    document.addEventListener("keydown", function(event) {
+        if (event.code === "Space") {
+            event.preventDefault();
+            togglePause();
+            return;
+        }
+
+        switch (event.code) {
+            case "KeyW": case "ArrowUp": keys.forward = true; break;
+            case "KeyS": case "ArrowDown": keys.backward = true; break;
+            case "KeyA": case "ArrowLeft": keys.left = true; break;
+            case "KeyD": case "ArrowRight": keys.right = true; break;
+        }
+    });
+
+    document.addEventListener("keyup", function(event) {
+        switch (event.code) {
+            case "KeyW": case "ArrowUp": keys.forward = false; break;
+            case "KeyS": case "ArrowDown": keys.backward = false; break;
+            case "KeyA": case "ArrowLeft": keys.left = false; break;
+            case "KeyD": case "ArrowRight": keys.right = false; break;
+        }
+    });
+
+    const overlay = document.getElementById("overlay-screen");
+    overlay.addEventListener("click", function() {
+        if (isPaused) {
+            togglePause();
+        }
+    });
+
+    renderer.domElement.addEventListener("contextmenu", function(event) {
+        event.preventDefault();
+    });
+
+    renderer.domElement.addEventListener("mousedown", function(event) {
+        if (isPaused) {
+            togglePause();
+            return;
+        }
+        if (!gameStarted && !isCountingDown) {
+            renderer.domElement.requestPointerLock();
+            return;
+        }
+        if (gameStarted && !isWorshipEnding) {
+            if (document.pointerLockElement !== renderer.domElement) {
+                renderer.domElement.requestPointerLock();
+            } else {
+                if (event.button === 0) {
+                    shootDodgeball();
+                } else if (event.button === 2) {
+                    placeBallOnGround();
+                }
+            }
+        }
+    });
+
+    document.addEventListener("mousemove", function(event) {
+        if (!gameStarted || isPaused || document.pointerLockElement !== renderer.domElement) return;
+        const dx = event.movementX || 0;
+        yaw -= dx * 0.0045;
+        pitch = 0;
+    });
+
+    window.addEventListener("blur", () => {
+        keys.forward = keys.backward = keys.left = keys.right = false;
+    });
+}
+
+function checkCollision(posx, posz, radius = PLAYER_RADIUS) {
+    for (let box of colliders) {
+        const closestX = THREE.MathUtils.clamp(posx, box.minX, box.maxX);
+        const closestZ = THREE.MathUtils.clamp(posz, box.minZ, box.maxZ);
+        if (((posx - closestX) ** 2 + (posz - closestZ) ** 2) < (radius ** 2)) return true;
+    }
+    return false;
+}
+
+function checkWorshipEndingCondition() {
+    if (isWorshipEnding || !gameStarted || isPaused) return;
+    if (ballState !== 'GROUND') return;
+
+    const distToChair = Math.sqrt(camera.position.x ** 2 + camera.position.z ** 2);
+    if (distToChair > 0.5) return;
+
+    const forwardVector = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)).normalize();
+    const podiumCenterX = (zoneMinX + zoneMaxX) / 2;
+    const podiumCenterZ = (zoneMinZ + zoneMaxZ) / 2;
+    const dirToPodium = new THREE.Vector3(podiumCenterX - camera.position.x, 0, podiumCenterZ - camera.position.z).normalize();
+
+    const dot = forwardVector.dot(dirToPodium);
+    if (dot > 0.6) {
+        triggerWorshipEnding();
+    }
+}
+
+function triggerWorshipEnding() {
+    isWorshipEnding = true;
+    renderer.domElement.requestPointerLock();
+
+    const podiumCenterX = (zoneMinX + zoneMaxX) / 2;
+    const podiumCenterZ = (zoneMinZ + zoneMaxZ) / 2;
+    const dirToPodium = new THREE.Vector3(podiumCenterX - camera.position.x, 0, podiumCenterZ - camera.position.z).normalize();
+    yaw = Math.atan2(-dirToPodium.x, -dirToPodium.z);
+
+    npcs.forEach(n => {
+        n.speechState = 'hidden';
+        n.domElement.style.display = 'none';
+    });
+
+    const targetPositions = [
+        { col: 19, row: 'H' }, 
+        { col: 19, row: 'J' }, 
+        { col: 19, row: 'L' }, 
+        { col: 19, row: 'N' }, 
+        { col: 19, row: 'P' }  
+    ];
+
+    npcs.forEach((npc, index) => {
+        const posInfo = targetPositions[index % targetPositions.length];
+        const rowFromBottom = posInfo.row.charCodeAt(0) - 65;
+        const colIndex = posInfo.col - 1;
+
+        npc.x = ROOM_MIN_X + GRID_SIZE / 2 + colIndex * GRID_SIZE;
+        npc.z = ROOM_MAX_Z - GRID_SIZE / 2 - rowFromBottom * GRID_SIZE;
+
+        npc.group.position.set(npc.x, 0, npc.z);
+        npc.isDown = false;
+        npc.group.rotation.set(0, 0, 0);
+        npc.group.position.y = 0;
+
+        npc.group.lookAt(camera.position.x, npc.group.position.y, camera.position.z);
+    });
+
+    worshipWallMaterials.forEach(item => {
+        item.active = true;
+    });
+
+    if (worshipTextMesh) {
+        worshipTextMesh.visible = true;
+        worshipTextMesh.renderOrder = 999;
+    }
+
+    updateBallUI();
+
+    const overlay = document.getElementById("overlay-screen");
+    overlay.classList.add("worship-top");
+    document.getElementById("overlay-title").textContent = "🌟 一起來敬拜 🌟";
+    document.getElementById("overlay-desc").innerHTML = "從座位上站起來敬拜<br><br><span style='color: #f1c40f; text-align: center; display: block;'>遊戲結束</span>";
+    overlay.style.display = "flex";
+    overlay.style.opacity = "1";
+}
+
+function updateMovement(delta) {
+    if (!gameStarted || isPaused || isWorshipEnding) return;
+    let forward = 0, side = 0;
+    if (keys.forward) forward++;
+    if (keys.backward) forward--;
+    if (keys.right) side++;
+    if (keys.left) side--;
+
+    if (forward === 0 && side === 0) return;
+
+    const length = Math.sqrt(forward * forward + side * side);
+    forward /= length;
+    side /= length;
+
+    const forwardVector = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const rightVector = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+
+    const movement = new THREE.Vector3()
+        .addScaledVector(forwardVector, forward)
+        .addScaledVector(rightVector, side)
+        .multiplyScalar(MOVE_SPEED * delta);
+
+    let newX = THREE.MathUtils.clamp(camera.position.x + movement.x, ROOM_MIN_X + PLAYER_RADIUS, ROOM_MAX_X - PLAYER_RADIUS);
+    let newZ = THREE.MathUtils.clamp(camera.position.z + movement.z, ROOM_MIN_Z + PLAYER_RADIUS, ROOM_MAX_Z - PLAYER_RADIUS);
+
+    if (!checkCollision(newX, camera.position.z, PLAYER_RADIUS)) camera.position.x = newX;
+    if (!checkCollision(camera.position.x, newZ, PLAYER_RADIUS)) camera.position.z = newZ;
+
+    if (ballState === 'GROUND') {
+        const distToBall = new THREE.Vector3(camera.position.x, 0, camera.position.z).distanceTo(new THREE.Vector3(ballPos.x, 0, ballPos.z));
+        if (distToBall < 0.8) {
+            ballState = 'HELD';
+            updateBallUI();
+        }
+    }
+
+    checkWorshipEndingCondition();
+}
+
+function updateCameraRotation() {
+    const target = new THREE.Vector3();
+    const direction = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    target.copy(camera.position).add(direction);
+    camera.lookAt(target);
+}
+
+function updateDodgeball(delta) {
+    if (isPaused || isWorshipEnding) return;
+
+    if (ballState === 'HELD') {
+        updateBallPosition();
+        dodgeballMesh.rotation.y += delta * 1.5;
+    } else if (ballState === 'GROUND') {
+        dodgeballMesh.position.copy(ballPos);
+        dodgeballMesh.rotation.y += delta * 0.5;
+    } else if (ballState === 'FLYING') {
+        const step = ballVelocity.clone().multiplyScalar(delta);
+        ballPos.add(step);
+        ballDistTravelled += step.length();
+        dodgeballMesh.position.copy(ballPos);
+
+        dodgeballMesh.rotation.x += delta * 10;
+        dodgeballMesh.rotation.y += delta * 8;
+
+        npcs.forEach(npc => {
+            if (!npc.isDown) {
+                const dist = new THREE.Vector3(npc.x, 0.5, npc.z).distanceTo(ballPos);
+                if (dist < 0.6) {
+                    hitNPC(npc);
+                }
+            }
+        });
+
+        if (ballDistTravelled >= BALL_MAX_DIST || checkCollision(ballPos.x, ballPos.z, 0.15)) {
+            ballState = 'RETURNING';
+            updateBallUI();
+        }
+    } else if (ballState === 'RETURNING') {
+        const targetPos = new THREE.Vector3();
+        const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+        const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        targetPos.copy(camera.position).addScaledVector(forward, 0.5).addScaledVector(right, 0.2).add(new THREE.Vector3(0, -0.25, 0));
+
+        const dirToPlayer = new THREE.Vector3().subVectors(targetPos, ballPos);
+        const distToPlayer = dirToPlayer.length();
+
+        if (distToPlayer < 0.8) {
+            ballState = 'HELD';
+            updateBallUI();
+        } else {
+            dirToPlayer.normalize();
+            ballPos.add(dirToPlayer.multiplyScalar(BALL_SPEED * 1.5 * delta));
+            dodgeballMesh.position.copy(ballPos);
+            dodgeballMesh.rotation.y += delta * 5;
+        }
+    }
+}
+
+function hitNPC(npc) {
+    npc.isDown = true;
+    npc.downTimer = 1.5;
+
+    npc.speechState = 'hidden';
+    npc.domElement.style.display = 'none';
+
+    const pushDir = new THREE.Vector3(npc.x - camera.position.x, 0, npc.z - camera.position.z).normalize();
+    
+    let targetX = npc.x + pushDir.x * 1.2;
+    let targetZ = npc.z + pushDir.z * 1.2;
+
+    if (!checkCollision(targetX, npc.z, 0.3)) {
+        npc.x = THREE.MathUtils.clamp(targetX, ROOM_MIN_X + 0.5, ROOM_MAX_X - 0.5);
+    }
+    if (!checkCollision(npc.x, targetZ, 0.3)) {
+        npc.z = THREE.MathUtils.clamp(targetZ, ROOM_MIN_Z + 0.5, ROOM_MAX_Z - 0.5);
+    }
+
+    npc.group.position.set(npc.x, 0, npc.z);
+
+    npc.group.rotation.x = Math.PI / 2;
+    npc.group.position.y = 0.15;
+
+    ballState = 'RETURNING';
+    updateBallUI();
+}
+
+function triggerDamageEffect() {
+    if (isWorshipEnding || ballState === 'GROUND') return;
+    if (playerLives <= 0 || isInvulnerable || !gameStarted || isPaused) return;
+
+    playerLives--;
+    isInvulnerable = true;
+
+    let hearts = "";
+    for (let i = 0; i < playerLives; i++) hearts += "❤";
+    document.getElementById("lives-display").textContent = hearts || "無";
+
+    const flash = document.getElementById("damage-flash");
+    flash.style.opacity = "1";
+    setTimeout(() => { flash.style.opacity = "0"; }, 150);
+    setTimeout(() => { isInvulnerable = false; }, 1000);
+
+    if (playerLives <= 0) {
+        gameStarted = false;
+        document.exitPointerLock();
+
+        npcs.forEach(n => {
+            n.speechState = 'hidden';
+            n.domElement.style.display = 'none';
+        });
+
+        const overlay = document.getElementById("overlay-screen");
+        document.getElementById("overlay-title").textContent = "挑戰失敗！";
+        document.getElementById("overlay-desc").innerHTML = "被老師抓到了...<br><br><span style='color: #f1c40f; text-align: center; display: block;'>重新開始遊戲...</span>";
+        overlay.style.display = "flex";
+        overlay.style.opacity = "1";
+
+        setTimeout(() => { startCountdown(); }, 1500);
+    }
+}
+
+function updateNPCs(delta, time) {
+    if (!gameStarted || isPaused) return;
+
+if (isWorshipEnding) {
+    npcs.forEach((npc, index) => {
+        npc.group.lookAt(camera.position.x, npc.group.position.y, camera.position.z);
+
+        const speedFactor = 10 + index * 2;
+
+        // 上下小幅度
+        npc.group.position.y =
+            Math.abs(Math.sin(time * speedFactor)) * 0.2;
+
+        // 身體小幅度左右擺
+        npc.torso.rotation.z =
+            Math.sin(time * speedFactor * 1.2) * 0.25;
+
+        // 頭部小幅度左右擺
+        npc.head.rotation.y =
+            Math.cos(time * speedFactor) * 0.3;
+
+        // 腿小幅度擺動
+        npc.leftLeg.rotation.x =
+            Math.sin(time * speedFactor * 1.5) * 0.5;
+
+        npc.rightLeg.rotation.x =
+            -Math.sin(time * speedFactor * 1.5) * 0.5;
+    });
+    return;
+}
+
+
+    const px = camera.position.x;
+    const pz = camera.position.z;
+    const isPlayerInPlatform = (
+        px >= NO_NPC_ZONE.minX && px <= NO_NPC_ZONE.maxX &&
+        pz >= NO_NPC_ZONE.minZ && pz <= NO_NPC_ZONE.maxZ
+    );
+
+    const tempV = new THREE.Vector3();
+
+    npcs.forEach((npc) => {
+        if (npc.isDown) {
+            npc.downTimer -= delta;
+            if (npc.downTimer <= 0) {
+                npc.isDown = false;
+                npc.group.rotation.set(0, 0, 0);
+                npc.group.position.y = 0;
+            }
+            return; 
+        }
+
+        const dirX = camera.position.x - npc.x;
+        const dirZ = camera.position.z - npc.z;
+        const dist = Math.sqrt(dirX * dirX + dirZ * dirZ);
+
+        if (dist <= 0.6) {
+            triggerDamageEffect();
+        }
+
+        if (dist > 0.5) {
+            const moveStep = npc.speed * delta;
+            let nextX = npc.x + (dirX / dist) * moveStep;
+            let nextZ = npc.z + (dirZ / dist) * moveStep;
+
+            const buffer = 0.4;
+            const isInRestrictedZoneX = (nextX >= (NO_NPC_ZONE.minX - buffer) && nextX <= (NO_NPC_ZONE.maxX + buffer) && npc.z >= (NO_NPC_ZONE.minZ - buffer) && npc.z <= (NO_NPC_ZONE.maxZ + buffer));
+            const isInRestrictedZoneZ = (npc.x >= (NO_NPC_ZONE.minX - buffer) && npc.x <= (NO_NPC_ZONE.maxX + buffer) && nextZ >= (NO_NPC_ZONE.minZ - buffer) && nextZ <= (NO_NPC_ZONE.maxZ + buffer));
+
+            if (!isInRestrictedZoneX && !checkCollision(nextX, npc.z, 0.3)) npc.x = nextX;
+            if (!isInRestrictedZoneZ && !checkCollision(npc.x, nextZ, 0.3)) npc.z = nextZ;
+
+            npc.group.position.set(npc.x, 0, npc.z);
+        }
+
+        npc.group.lookAt(camera.position.x, npc.group.position.y, camera.position.z);
+
+        if (npc.behavior === 'walk') {
+            npc.leftLeg.rotation.x = Math.sin(time * 4) * 0.4;
+            npc.rightLeg.rotation.x = -Math.sin(time * 4) * 0.4;
+        } else if (npc.behavior === 'crazy') {
+            npc.torso.rotation.z = Math.sin(time * 15) * 0.25;
+            npc.leftLeg.rotation.x = Math.cos(time * 18) * 0.8;
+            npc.rightLeg.rotation.x = -Math.cos(time * 18) * 0.8;
+        } else if (npc.behavior === 'zombie') {
+            npc.group.position.y = Math.max(0, Math.sin(time * 8) * 0.35);
+        } else if (npc.behavior === 'fastrun') {
+            npc.leftLeg.rotation.x = Math.sin(time * 12) * 0.7;
+            npc.rightLeg.rotation.x = -Math.sin(time * 12) * 0.7;
+        }
+
+        npc.speechTimer -= delta;
+        if (npc.speechState === 'hidden') {
+            if (npc.speechTimer <= 0) {
+                if (isPlayerInPlatform) {
+                    npc.domElement.textContent = Math.random() < 0.5 ? "不准上講台" : "小朋友下來";
+                } else if (ballState === 'GROUND') {
+                    npc.domElement.textContent = Math.random() < 0.5 ? "去椅子上坐好" : "我們要敬拜囉";
+                } else {
+                    npc.domElement.textContent = Math.random() < 0.5 ? "兒主教室不能玩球" : "球放下來";
+                }
+                npc.speechState = 'showing';
+                npc.speechDuration = 1.0; 
+                npc.domElement.style.display = 'block';
+            }
+        } else if (npc.speechState === 'showing') {
+            npc.speechDuration -= delta;
+            if (npc.speechDuration <= 0) {
+                npc.speechState = 'hidden';
+                npc.speechTimer = 1.0 + Math.random() * 1.5; 
+                npc.domElement.style.display = 'none';
+            }
+        }
+
+        tempV.set(npc.x, 1.1, npc.z);
+        tempV.project(camera);
+
+        if (tempV.z < 1) {
+            const x = (tempV.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-(tempV.y * 0.5) + 0.5) * window.innerHeight;
+            npc.domElement.style.left = `${x}px`;
+            npc.domElement.style.top = `${y}px`;
+        } else {
+            npc.domElement.style.display = 'none';
+        }
+    });
+}
+
+function updateWorshipWalls(time) {
+    worshipWallMaterials.forEach(item => {
+        if (!item.active) return;
+
+        const ctx = item.ctx;
+
+        ctx.clearRect(0, 0, 1024, 512);
+
+        // ★ 閃爍速度
+        const flash = Math.sin(time * 7);
+
+        // 只在亮的時候顯示
+        if (flash > -0.1) {
+
+            const brightness = Math.max(0.2, (flash + 1) / 2);
+
+            // ===== 外圍金黃色光暈 =====
+            ctx.save();
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.font = 'bold 190px "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif';
+
+            // ★ 強烈發光
+            ctx.shadowColor = `rgba(255, 215, 0, ${0.95 * brightness})`;
+            ctx.shadowBlur = 35;
+
+            // ★ 黑色外框
+            ctx.lineWidth = 18;
+            ctx.strokeStyle = '#000000';
+            ctx.strokeText("敬拜", 512, 256);
+
+            // ★ 金黃色文字
+            ctx.fillStyle = `rgb(
+                255,
+                ${Math.floor(190 + brightness * 65)},
+                20
+            )`;
+
+            ctx.fillText("敬拜", 512, 256);
+
+            // ===== 第二層白色高光 =====
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 10;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.35 + brightness * 0.65;
+
+            ctx.fillText("敬拜", 512, 256);
+
+            ctx.restore();
+        }
+
+        item.texture.needsUpdate = true;
+    });
+}
+
+function drawRadar() {
+    if (!radarCtx) return;
+
+    const width = radarCanvas.width;
+    const height = radarCanvas.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radarRadius = width / 2 - 5;
+
+    radarCtx.clearRect(0, 0, width, height);
+
+    radarCtx.save();
+    radarCtx.beginPath();
+    radarCtx.arc(centerX, centerY, radarRadius, 0, Math.PI * 2);
+    radarCtx.clip();
+
+    radarCtx.fillStyle = 'rgba(20, 30, 40, 0.75)';
+    radarCtx.fill();
+
+    radarCtx.strokeStyle = 'rgba(0, 255, 128, 0.25)';
+    radarCtx.lineWidth = 1;
+    [0.33, 0.66, 1.0].forEach(ratio => {
+        radarCtx.beginPath();
+        radarCtx.arc(centerX, centerY, radarRadius * ratio, 0, Math.PI * 2);
+        radarCtx.stroke();
+    });
+
+    radarCtx.beginPath();
+    radarCtx.moveTo(centerX, centerY - radarRadius);
+    radarCtx.lineTo(centerX, centerY + radarRadius);
+    radarCtx.moveTo(centerX - radarRadius, centerY);
+    radarCtx.lineTo(centerX + radarRadius, centerY);
+    radarCtx.stroke();
+
+    const playerX = camera.position.x;
+    const playerZ = camera.position.z;
+    const cosY = Math.cos(yaw);
+    const sinY = Math.sin(yaw);
+
+    if (ballState === 'GROUND') {
+        const dx = ballPos.x - playerX;
+        const dz = ballPos.z - playerZ;
+        const relX = dx * cosY - dz * sinY;
+        const relZ = dx * sinY + dz * cosY;
+        const scale = radarRadius / RADAR_VIEW_DISTANCE;
+        const drawX = centerX + relX * scale;
+        const drawY = centerY + relZ * scale;
+
+        radarCtx.beginPath();
+        radarCtx.arc(drawX, drawY, 3.5, 0, Math.PI * 2);
+        radarCtx.fillStyle = '#f1c40f';
+        radarCtx.fill();
+        radarCtx.strokeStyle = '#ffffff';
+        radarCtx.stroke();
+    }
+
+    npcs.forEach(npc => {
+        const dx = npc.x - playerX;
+        const dz = npc.z - playerZ;
+
+        const relX = dx * cosY - dz * sinY;
+        const relZ = dx * sinY + dz * cosY;
+
+        const distance = Math.sqrt(relX * relX + relZ * relZ);
+        const scale = radarRadius / RADAR_VIEW_DISTANCE;
+
+        let drawX = centerX + relX * scale;
+        let drawY = centerY + relZ * scale;
+
+        if (distance > RADAR_VIEW_DISTANCE) {
+            const angle = Math.atan2(relZ, relX);
+            drawX = centerX + Math.cos(angle) * radarRadius;
+            drawY = centerY + Math.sin(angle) * radarRadius;
+        }
+
+        radarCtx.beginPath();
+        radarCtx.arc(drawX, drawY, npc.isDown ? 3 : 4.5, 0, Math.PI * 2);
+        radarCtx.fillStyle = npc.isDown ? '#7f8c8d' : '#e74c3c';
+        radarCtx.fill();
+        radarCtx.lineWidth = 1.5;
+        radarCtx.strokeStyle = '#ffffff';
+        radarCtx.stroke();
+    });
+
+    radarCtx.restore();
+
+    radarCtx.save();
+    radarCtx.translate(centerX, centerY);
+    radarCtx.beginPath();
+    radarCtx.arc(0, 0, 4, 0, Math.PI * 2);
+    radarCtx.fillStyle = '#3498db';
+    radarCtx.fill();
+    radarCtx.lineWidth = 1.5;
+    radarCtx.strokeStyle = '#ffffff';
+    radarCtx.stroke();
+    radarCtx.restore();
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const delta = clock.getDelta();
+    const time = clock.getElapsedTime();
+
+    updateMovement(delta);
+    updateCameraRotation();
+    updateDodgeball(delta);
+    updateNPCs(delta, time);
+    updateWorshipWalls(time);
+    drawRadar();
+
+    renderer.render(scene, camera);
+}
+
+function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+window.onload = init;
+</script>
+
+</body>
+</html>

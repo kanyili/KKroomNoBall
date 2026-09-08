@@ -256,6 +256,19 @@ class GameApp {
         this.animate();
     }
 
+    // 統一的 Pointer Lock 管理函式
+    lockPointer() {
+        if (document.pointerLockElement !== this.renderer.domElement) {
+            this.renderer.domElement.requestPointerLock();
+        }
+    }
+
+    unlockPointer() {
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+    }
+
     initWorshipText() {
         const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 512;
         const texture = new THREE.CanvasTexture(canvas);
@@ -322,25 +335,110 @@ class GameApp {
             const action = CONFIG.keyMap[e.code];
             if (action) this.keys[action] = val;
         };
-        document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); this.togglePause(); } else mapKey(e, true); });
+
+        document.addEventListener("keydown", e => { 
+            if (e.code === "Space") { 
+                e.preventDefault(); 
+                this.togglePause(); 
+            } else {
+                mapKey(e, true);
+            } 
+        });
+
         document.addEventListener("keyup", e => mapKey(e, false));
         
-        this.ui.overlay.addEventListener("click", () => { if (this.isPaused) this.togglePause(); });
-        this.renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
-        this.renderer.domElement.addEventListener("mousedown", e => {
-            if (this.isPaused) { this.togglePause(); return; }
-            if (!this.gameStarted && !this.isCountingDown) { this.renderer.domElement.requestPointerLock(); return; }
-            if (this.gameStarted && !this.isWorshipEnding) {
-                if (document.pointerLockElement !== this.renderer.domElement) this.renderer.domElement.requestPointerLock();
-                else if (e.button === 0) this.shootDodgeball();
-                else if (e.button === 2) this.placeBallOnGround();
+        // 點擊畫面 / 疊加層互動
+        this.ui.overlay.addEventListener("click", () => { 
+            if (this.isPaused) { 
+                this.togglePause(); 
+            } else if (!this.gameStarted && !this.isCountingDown) {
+                // 使用者主動點擊以開始遊戲並取得 pointer lock
+                this.lockPointer();
             }
         });
+
+        this.renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
+        this.renderer.domElement.addEventListener("mousedown", e => {
+            if (this.isPaused) { 
+                this.togglePause(); 
+                return; 
+            }
+            if (!this.gameStarted && !this.isCountingDown) { 
+                this.lockPointer(); 
+                return; 
+            }
+            if (this.gameStarted && !this.isWorshipEnding) {
+                if (document.pointerLockElement !== this.renderer.domElement) {
+                    this.lockPointer();
+                } else {
+                    if (e.button === 0) this.shootDodgeball();
+                    else if (e.button === 2) this.placeBallOnGround();
+                }
+            }
+        });
+
         document.addEventListener("mousemove", e => { 
             if (this.gameStarted && !this.isPaused && document.pointerLockElement === this.renderer.domElement) {
                 this.yaw -= (e.movementX || 0) * 0.0045;
             }
         });
+
+        // 監聽 Pointer Lock 狀態變更
+        document.addEventListener("pointerlockchange", () => {
+            if (document.pointerLockElement === this.renderer.domElement) {
+                // 成功取得 Lock，如果原本因故暫停且在遊戲中，可恢復
+            } else {
+                // 被解除 (例如使用者按 ESC、切換視窗等)
+                // 若遊戲正在進行中且未暫停、未結束敬拜、未倒數，則自動切換為暫停狀態
+                if (this.gameStarted && !this.isPaused && !this.isWorshipEnding && !this.isCountingDown) {
+                    this.pauseGameForLostFocus();
+                }
+            }
+        });
+
+        // 監聽 Pointer Lock 錯誤
+        document.addEventListener("pointerlockerror", () => {
+            console.warn("Pointer lock error encountered.");
+            if (this.gameStarted && !this.isPaused && !this.isWorshipEnding && !this.isCountingDown) {
+                this.pauseGameForLostFocus();
+            }
+        });
+
+        // 視窗失去焦點 / 隱藏時主動解鎖並暫停
+        window.addEventListener("blur", () => {
+            this.unlockPointer();
+            if (this.gameStarted && !this.isPaused && !this.isWorshipEnding && !this.isCountingDown) {
+                this.pauseGameForLostFocus();
+            }
+        });
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                this.unlockPointer();
+                if (this.gameStarted && !this.isPaused && !this.isWorshipEnding && !this.isCountingDown) {
+                    this.pauseGameForLostFocus();
+                }
+            }
+        });
+
+        // 頁面即將卸載或隱藏時確保解除鎖定
+        window.addEventListener("pagehide", () => {
+            this.unlockPointer();
+        });
+
+        window.addEventListener("beforeunload", () => {
+            this.unlockPointer();
+        });
+    }
+
+    pauseGameForLostFocus() {
+        if (this.isPaused) return;
+        this.isPaused = true;
+        this.unlockPointer();
+        const overlay = this.ui.overlay;
+        this.ui.overlayTitle.textContent = "遊戲暫停";
+        overlay.style.display = "flex"; 
+        overlay.style.opacity = "1";
     }
 
     resetGame() {
@@ -372,13 +470,13 @@ class GameApp {
         this.isPaused = !this.isPaused;
         const overlay = this.ui.overlay;
         if (this.isPaused) {
-            document.exitPointerLock();
+            this.unlockPointer();
             this.ui.overlayTitle.textContent = "遊戲暫停";
             overlay.style.display = "flex"; overlay.style.opacity = "1";
         } else {
             overlay.style.opacity = "0";
             setTimeout(() => { if (!this.isPaused) overlay.style.display = "none"; }, 300);
-            this.renderer.domElement.requestPointerLock(); 
+            this.lockPointer(); 
             this.clock.getDelta(); 
         }
     }
@@ -390,6 +488,7 @@ class GameApp {
         this.resetGame(); 
         this.isCountingDown = true; 
         this.gameStarted = false;
+        this.unlockPointer();
         
         let count = 3;
         this.ui.overlayTitle.textContent = `遊戲即將開始：${count}`;
@@ -402,14 +501,15 @@ class GameApp {
                 setTimeout(() => overlay.style.display = "none", 300);
                 this.isCountingDown = false; 
                 this.gameStarted = true; 
-                this.renderer.domElement.requestPointerLock();
+                // 倒數結束後，不自動呼叫 lockPointer()，改由使用者主動點擊畫面開始/解鎖
+                this.ui.overlayTitle.textContent = "🏫 兒主教室不能玩球";
             }
         }, 1000);
     }
 
     triggerWorshipEnding() {
         this.isWorshipEnding = true; 
-        this.renderer.domElement.requestPointerLock();
+        this.unlockPointer();
         this.yaw = Math.atan2(-(this.map.minX + 21 - this.camera.position.x), -(this.map.maxZ - 12 - this.camera.position.z));
         this.npcs.forEach(n => { n.speechState = 'hidden'; n.domElement.style.display = 'none'; });
         
@@ -444,7 +544,7 @@ class GameApp {
 
         if (this.playerLives <= 0) {
             this.gameStarted = false; 
-            document.exitPointerLock();
+            this.unlockPointer();
             this.npcs.forEach(n => { n.speechState = 'hidden'; n.domElement.style.display = 'none'; });
             this.ui.overlayTitle.textContent = "挑戰失敗！";
             this.ui.overlayDesc.innerHTML = "被老師抓到了...<br><br><span style='color: #f1c40f;'>重新開始遊戲...</span>";
